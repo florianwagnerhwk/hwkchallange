@@ -1,0 +1,396 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Trophy, Play, User, ArrowRight, Home, CheckCircle2, XCircle, Award, ChevronRight, Clock, Star, MousePointer2, Delete } from 'lucide-react';
+
+// --- DATEN ---
+const HWK_COLORS = {
+  blue: '#003399',
+  gray: '#6b7280',
+  lightGray: '#f3f4f6',
+  mediumGray: '#d1d5db',
+  white: '#ffffff',
+  darkBlue: '#002673'
+};
+
+const BERUFE_DATA = [
+  { name: "Zimmerer*in", tools: ["Abbundsäge", "Zimmermannshammer"], task: "Errichtet Dachstühle und Holzhäuser", category: "Bau" },
+  { name: "Dachdecker*in", tools: ["Schieferhammer", "Nageltasche"], task: "Deckt Dächer und installiert Solaranlagen", category: "Bau" },
+  { name: "Maler*in und Lackierer*in", tools: ["Farbwalze", "Tapezierbürste"], task: "Gestaltet Innenräume und Fassaden", category: "Bau" },
+  { name: "Straßenbauer*in", tools: ["Rüttelplatte", "Lasermessgerät"], task: "Baut Autobahnen, Gehwege und Plätze", category: "Bau" },
+  { name: "Fliesenleger*in", tools: ["Fliesenschneider", "Zahnspachtel"], task: "Gestaltet Bäder mit Keramik oder Naturstein", category: "Bau" },
+  { name: "Elektroniker*in", tools: ["Multimeter", "Abisolierzange"], task: "Installiert Smart-Home-Systeme und Leitungen", category: "Elektro" },
+  { name: "Anlagenmechaniker*in SHK", tools: ["Rohrzange", "Pressmaschine"], task: "Baut moderne Heizungen und nachhaltige Bäder", category: "Elektro" },
+  { name: "Kfz-Mechatroniker*in", tools: ["Diagnose-Tester", "Drehmomentschlüssel"], task: "Wartet Verbrenner- und Elektroautos", category: "Metall" },
+  { name: "Feinwerkmechaniker*in", tools: ["Messschieber", "Drehmaschine"], task: "Stellt hochpräzise Bauteile für Maschinen her", category: "Metall" },
+  { name: "Metallbauer*in", tools: ["Schweißgerät", "Winkelschleifer"], task: "Konstruiert Tore, Treppengeländer oder Stahlhallen", category: "Metall" },
+  { name: "Tischler*in", tools: ["Hobel", "Japansäge"], task: "Baut individuelle Möbel und Innenausbauten", category: "Holz" },
+  { name: "Raumausstatter*in", tools: ["Polsternadel", "Heißklebepistole"], task: "Gestaltet Innenräume mit Stoffen und Tapeten", category: "Gestaltung" },
+  { name: "Friseur*in", tools: ["Schere", "Färbepinsel"], task: "Schneidet, pflegt und stylt Haare", category: "Gesundheit" },
+  { name: "Orthopädietechnik-Mechaniker*in", tools: ["Schleifmaschine", "Heißluftgebläse"], task: "Fertigt Prothesen und Rollstühle individuell an", category: "Gesundheit" },
+  { name: "Augenoptiker*in", tools: ["Scheitelbrechwertmesser", "Zentriergerät"], task: "Berät bei Brillen und schleift Gläser ein", category: "Gesundheit" },
+  { name: "Zahntechniker*in", tools: ["Artikulator", "Modellierinstrumente"], task: "Fertigt Zahnersatz wie Kronen oder Spangen an", category: "Gesundheit" },
+  { name: "Bäcker*in", tools: ["Teigknetmaschine", "Gärschrank"], task: "Kreiert Brote, Brötchen und Backwaren", category: "Ernährung" },
+  { name: "Konditor*in", tools: ["Spritzbeutel", "Palette"], task: "Zaubert Torten, Pralinen und Eiskreationen", category: "Ernährung" }
+];
+
+const QUESTIONS_PER_GAME = 5;
+const TIME_LIMIT_MS = 5000;
+const IDLE_TIMEOUT_MS = 30000;
+
+const KEYBOARD_LAYOUT = [
+  ['Q', 'W', 'E', 'R', 'T', 'Z', 'U', 'I', 'O', 'P'],
+  ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+  ['Y', 'X', 'C', 'V', 'B', 'N', 'M', 'DEL']
+];
+
+export default function App() {
+  const [gameState, setGameState] = useState('START'); 
+  const [playerName, setPlayerName] = useState('');
+  const [score, setScore] = useState(0);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [questions, setQuestions] = useState([]);
+  const [feedback, setFeedback] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(TIME_LIMIT_MS);
+  const [logoError, setLogoError] = useState(false);
+  
+  // Lokaler Highscore-State (wird initialisiert mit Beispielwerten)
+  const [highscores, setHighscores] = useState([
+    { name: "MACHER_1", score: 650 },
+    { name: "HWK_PRO", score: 580 },
+    { name: "AZUBI_KW", score: 490 }
+  ]);
+
+  const timerRef = useRef(null);
+  const idleRef = useRef(null);
+
+  // Inaktivitäts-Timer
+  const resetIdleTimer = () => {
+    if (gameState === 'ATTRACT') setGameState('START');
+    clearTimeout(idleRef.current);
+    if (gameState === 'START' || gameState === 'SCOREBOARD') {
+      idleRef.current = setTimeout(() => setGameState('ATTRACT'), IDLE_TIMEOUT_MS);
+    }
+  };
+
+  useEffect(() => {
+    window.addEventListener('mousedown', resetIdleTimer);
+    window.addEventListener('touchstart', resetIdleTimer);
+    resetIdleTimer();
+    return () => {
+      window.removeEventListener('mousedown', resetIdleTimer);
+      window.removeEventListener('touchstart', resetIdleTimer);
+      clearTimeout(idleRef.current);
+    };
+  }, [gameState]);
+
+  // Quiz Timer
+  useEffect(() => {
+    if (gameState === 'QUIZ' && !feedback) {
+      const interval = 50;
+      timerRef.current = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 0) {
+            clearInterval(timerRef.current);
+            handleAnswer(null);
+            return 0;
+          }
+          return prev - interval;
+        });
+      }, interval);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [gameState, feedback, currentQuestionIndex]);
+
+  const startNewGame = () => {
+    const shuffledPool = [...BERUFE_DATA].sort(() => 0.5 - Math.random());
+    const selected = shuffledPool.slice(0, QUESTIONS_PER_GAME).map(beruf => {
+      const isToolQuestion = Math.random() > 0.5;
+      const options = [beruf.name];
+      while (options.length < 4) {
+        const randomBeruf = BERUFE_DATA[Math.floor(Math.random() * BERUFE_DATA.length)].name;
+        if (!options.includes(randomBeruf)) options.push(randomBeruf);
+      }
+      return {
+        beruf: beruf,
+        text: isToolQuestion 
+          ? `Welcher Beruf nutzt hauptsächlich: ${beruf.tools.join(", ")}?` 
+          : `Welcher Beruf macht das: "${beruf.task}"?`,
+        correct: beruf.name,
+        options: options.sort(() => 0.5 - Math.random())
+      };
+    });
+    setQuestions(selected);
+    setScore(0);
+    setCurrentQuestionIndex(0);
+    setFeedback(null);
+    setTimeLeft(TIME_LIMIT_MS);
+    setGameState('QUIZ');
+  };
+
+  const handleAnswer = (option) => {
+    if (feedback) return;
+    clearInterval(timerRef.current);
+    const isCorrect = option === questions[currentQuestionIndex].correct;
+    if (isCorrect) {
+      const timeBonus = Math.floor(timeLeft / 50);
+      setScore(prev => prev + 100 + timeBonus);
+    }
+    setFeedback({ isCorrect, selected: option, timedOut: option === null });
+    setTimeout(() => {
+      if (currentQuestionIndex < QUESTIONS_PER_GAME - 1) {
+        setCurrentQuestionIndex(prev => prev + 1);
+        setFeedback(null);
+        setTimeLeft(TIME_LIMIT_MS);
+      } else {
+        setGameState('RESULT');
+      }
+    }, 1200);
+  };
+
+  const saveScoreLocally = () => {
+    const name = playerName.trim() || "Gast-Azubi";
+    const newEntry = { name: name.toUpperCase(), score };
+    const updated = [...highscores, newEntry]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10);
+    setHighscores(updated);
+    setGameState('SCOREBOARD');
+  };
+
+  const handleKeyPress = (key) => {
+    if (key === 'DEL') {
+      setPlayerName(prev => prev.slice(0, -1));
+    } else if (playerName.length < 15) {
+      setPlayerName(prev => prev + key);
+    }
+  };
+
+  const Header = () => (
+    <header className="flex justify-between items-center p-4 md:p-6 bg-white shadow-sm border-b-2 sticky top-0 z-50" style={{ borderColor: HWK_COLORS.mediumGray }}>
+      <div className="flex items-center gap-4 md:gap-6">
+        {logoError ? (
+          <div className="flex items-center gap-2">
+            <Award className="text-[#003399]" size={32} />
+            <span className="font-black text-lg md:text-xl text-[#003399] tracking-tighter uppercase">HWK KOBLENZ</span>
+          </div>
+        ) : (
+          <img 
+            src="HWK_Koblenz_RGB_M.png" 
+            alt="HWK Koblenz Logo" 
+            className="h-12 md:h-16 lg:h-20 object-contain"
+            onError={() => setLogoError(true)}
+          />
+        )}
+        <div className="h-10 w-px bg-slate-200 hidden sm:block"></div>
+        <div className="hidden sm:block">
+          <h1 className="text-lg md:text-xl font-bold uppercase tracking-tight text-[#003399]">Macher-Challenge</h1>
+          <p className="text-[10px] md:text-xs font-semibold text-slate-400 uppercase">Handwerkskammer Koblenz</p>
+        </div>
+      </div>
+      {gameState === 'QUIZ' && (
+        <div className="flex gap-2 md:gap-4 scale-90 md:scale-100">
+            <div className="bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 flex items-center gap-2">
+                <Clock size={18} className={timeLeft < 1500 ? 'text-red-500 animate-pulse' : 'text-slate-400'} />
+                <span className="text-xl md:text-2xl font-black tabular-nums">{(timeLeft / 1000).toFixed(1)}s</span>
+            </div>
+            <div className="bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 text-center min-w-[80px]">
+                <div className="text-[10px] uppercase font-bold text-slate-400">Score</div>
+                <div className="text-xl md:text-2xl font-black tabular-nums text-[#003399]">{score}</div>
+            </div>
+        </div>
+      )}
+    </header>
+  );
+
+  return (
+    <div className="min-h-screen font-sans flex flex-col bg-[#F8FAFC] overflow-x-hidden select-none" style={{ color: '#1e293b' }}>
+      <Header />
+
+      <main className="flex-1 flex flex-col items-center justify-center p-4 md:p-8 w-full max-w-7xl mx-auto relative">
+        
+        {/* ATTRACT MODE */}
+        {gameState === 'ATTRACT' && (
+          <div className="text-center animate-in fade-in duration-1000 flex flex-col items-center cursor-pointer w-full" onClick={resetIdleTimer}>
+            <Star size={100} fill={HWK_COLORS.blue} className="mb-8 md:mb-12 animate-bounce text-[#003399]" />
+            <h2 className="text-5xl md:text-7xl lg:text-9xl font-black mb-8 tracking-tighter uppercase leading-none text-[#003399]">
+              BIST DU <br/> EIN MACHER?
+            </h2>
+            <div className="flex items-center gap-4 text-2xl md:text-4xl font-bold text-slate-400 animate-pulse bg-white px-8 md:px-12 py-4 md:py-6 rounded-full shadow-2xl border-2 border-slate-50">
+                <MousePointer2 size={40} /> TOUCHEN ZUM STARTEN
+            </div>
+          </div>
+        )}
+
+        {/* START SCREEN */}
+        {gameState === 'START' && (
+          <div className="text-center w-full animate-in fade-in zoom-in duration-700">
+            <h2 className="text-4xl md:text-6xl lg:text-8xl font-black mb-8 leading-tight tracking-tight uppercase text-[#003399]">
+              KOBLENZ SUCHT <br/> <span className="text-slate-400 italic font-medium">DIE MACHER</span> VON MORGEN.
+            </h2>
+            <p className="text-xl md:text-3xl lg:text-4xl mb-12 text-slate-500 font-medium max-w-3xl mx-auto px-4 text-center">
+              Beweise dein Wissen in der Challenge. <br className="hidden md:block"/> 5 Fragen – jeweils 5 Sekunden Zeit.
+            </p>
+            <button 
+              onClick={() => setGameState('NAME_INPUT')}
+              className="group relative inline-flex items-center gap-6 md:gap-8 bg-[#003399] text-white px-12 md:px-20 py-8 md:py-10 rounded-[2rem] md:rounded-[2.5rem] text-3xl md:text-5xl font-extrabold shadow-2xl hover:bg-blue-800 hover:scale-105 active:scale-95 transition-all border-b-[8px] md:border-b-[12px] border-blue-900"
+            >
+              STARTEN
+              <Play fill="white" size={48} />
+            </button>
+          </div>
+        )}
+
+        {/* NAME INPUT */}
+        {gameState === 'NAME_INPUT' && (
+          <div className="w-full max-w-3xl bg-white p-6 md:p-10 rounded-[2.5rem] md:rounded-[3rem] shadow-2xl text-center border-b-[8px] md:border-b-[12px] border-slate-100 animate-in slide-in-from-bottom-12 duration-500">
+            <User size={48} className="mx-auto mb-4 text-slate-200" />
+            <h3 className="text-2xl md:text-3xl font-bold mb-4 tracking-tight text-slate-600">Wie heißt du?</h3>
+            <div className="w-full p-4 md:p-6 text-3xl md:text-5xl border-4 border-slate-50 rounded-2xl md:rounded-3xl mb-8 bg-slate-50 font-black uppercase tracking-[0.2em] text-[#003399] min-h-[80px] flex items-center justify-center shadow-inner">
+              {playerName || <span className="text-slate-200">NAME</span>}
+            </div>
+
+            <div className="flex flex-col gap-2 md:gap-3 mb-8 overflow-x-auto pb-2">
+              {KEYBOARD_LAYOUT.map((row, rIdx) => (
+                <div key={rIdx} className="flex justify-center gap-1.5 md:gap-3">
+                  {row.map((key) => (
+                    <button
+                      key={key}
+                      onClick={() => handleKeyPress(key)}
+                      className={`
+                        h-12 md:h-16 flex items-center justify-center rounded-xl text-xl md:text-2xl font-bold transition-all border-b-4
+                        ${key === 'DEL' 
+                          ? 'w-20 md:w-24 bg-slate-100 text-slate-500 border-slate-200 active:border-b-0' 
+                          : 'w-8 sm:w-10 md:w-16 bg-white border-slate-200 text-slate-800 hover:bg-slate-50 active:border-b-0'}
+                      `}
+                    >
+                      {key === 'DEL' ? '⌫' : key}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            <button 
+              disabled={!playerName.trim()}
+              onClick={startNewGame}
+              className={`w-full p-6 md:p-8 rounded-2xl text-2xl md:text-4xl font-black flex items-center justify-center gap-4 transition-all shadow-xl ${playerName.trim() ? 'bg-[#003399] text-white hover:bg-blue-800' : 'bg-slate-100 text-slate-300'}`}
+            >
+              WEITER <ChevronRight size={40} />
+            </button>
+          </div>
+        )}
+
+        {/* QUIZ */}
+        {gameState === 'QUIZ' && questions[currentQuestionIndex] && (
+          <div className="w-full max-w-6xl flex flex-col gap-8 md:gap-12 animate-in slide-in-from-bottom-12 duration-500 px-2 md:px-6">
+            <div className="text-center">
+              <h3 className="text-3xl md:text-5xl lg:text-7xl font-black leading-tight text-slate-800 mb-8 md:mb-12 px-2 text-center uppercase">
+                {questions[currentQuestionIndex].text}
+              </h3>
+              <div className="w-full h-4 md:h-8 bg-slate-200 rounded-full overflow-hidden shadow-inner border-4 border-white">
+                <div 
+                  className="h-full transition-all duration-50 ease-linear"
+                  style={{ 
+                    width: `${(timeLeft / TIME_LIMIT_MS) * 100}%`,
+                    backgroundColor: timeLeft < 1500 ? '#ef4444' : '#003399'
+                  }}
+                ></div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
+              {questions[currentQuestionIndex].options.map((option, idx) => {
+                const isSelected = feedback?.selected === option;
+                const isCorrect = option === questions[currentQuestionIndex].correct;
+                
+                let btnStyle = "bg-white border-2 border-slate-100 text-slate-700 shadow-md";
+                if (feedback) {
+                  if (isCorrect) btnStyle = "bg-[#003399] border-[#003399] text-white scale-[1.02] z-10 shadow-2xl";
+                  else if (isSelected) btnStyle = "bg-slate-400 border-slate-400 text-white opacity-60";
+                  else btnStyle = "bg-white border-slate-50 text-slate-100 opacity-30";
+                }
+
+                return (
+                  <button
+                    key={idx}
+                    disabled={!!feedback}
+                    onClick={() => handleAnswer(option)}
+                    className={`p-6 md:p-10 rounded-2xl md:rounded-[2.5rem] text-xl md:text-3xl lg:text-4xl font-black transition-all flex items-center justify-between text-left h-28 md:h-44 border-b-8 md:border-b-12 ${btnStyle} ${!feedback && 'hover:border-blue-200 active:translate-y-1 active:border-b-0'}`}
+                  >
+                    <span className="pr-4 leading-tight">{option}</span>
+                    {feedback && isCorrect && <CheckCircle2 size={48} className="shrink-0" />}
+                    {feedback && isSelected && !isCorrect && <XCircle size={48} className="shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* RESULT */}
+        {gameState === 'RESULT' && (
+          <div className="animate-in zoom-in duration-500 max-w-3xl w-full text-center px-4">
+            <div className="bg-white p-10 md:p-16 rounded-[3rem] md:rounded-[4rem] shadow-2xl border-b-[12px] md:border-b-[16px] border-slate-100 flex flex-col justify-center items-center">
+                <IconTrophy className="text-blue-500 w-24 h-24 md:w-36 md:h-36 mb-8" />
+                <h2 className="text-4xl md:text-6xl font-black mb-4 uppercase tracking-tighter text-[#003399]">
+                   GUT GEMACHT!
+                </h2>
+                <p className="text-xl md:text-3xl text-slate-500 mb-10 md:mb-12 text-center">
+                   {playerName}, du hast <br/><span className="text-3xl md:text-5xl font-black text-slate-800">{score} Punkte</span> <br/> erreicht.
+                </p>
+                <button 
+                  onClick={saveScoreLocally}
+                  className="w-full bg-[#003399] text-white px-8 md:px-12 py-6 md:py-10 rounded-2xl md:rounded-[2rem] text-2xl md:text-4xl font-black shadow-xl hover:bg-blue-800 transition-all border-b-8 border-blue-900"
+                >
+                  BESTENLISTE SPEICHERN
+                </button>
+            </div>
+          </div>
+        )}
+
+        {/* SCOREBOARD */}
+        {gameState === 'SCOREBOARD' && (
+          <div className="w-full max-w-5xl bg-white p-6 md:p-12 rounded-[2.5rem] md:rounded-[3.5rem] shadow-2xl border-t-[8px] md:border-t-[12px] border-[#003399]">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-6 mb-10 md:mb-12 text-[#003399]">
+                <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tight italic">Bestenliste</h2>
+                <p className="text-slate-400 font-bold uppercase text-[10px] md:text-xs tracking-widest text-center sm:text-right">Lokale Top-Macher von heute</p>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-10 md:mb-12 max-h-[50vh] overflow-y-auto px-2">
+              {highscores.map((entry, idx) => (
+                <div 
+                  key={idx} 
+                  className={`flex justify-between items-center p-4 md:p-6 rounded-2xl border-2 transition-all shadow-sm ${idx === 0 ? 'bg-blue-50 border-blue-100 scale-[1.02] ring-4 ring-blue-50' : 'bg-slate-50 border-slate-50'}`}
+                >
+                  <div className="flex items-center gap-4 md:gap-6">
+                    <span className={`w-10 md:w-14 h-10 md:h-14 flex items-center justify-center rounded-xl font-black text-lg md:text-2xl shadow-md ${idx === 0 ? 'bg-[#003399] text-white' : 'bg-white text-slate-300 border border-slate-100'}`}>
+                      {idx + 1}
+                    </span>
+                    <span className={`text-lg md:text-2xl font-black uppercase tracking-tight truncate max-w-[150px] md:max-w-none ${idx === 0 ? 'text-[#003399]' : 'text-slate-600'}`}>{entry.name}</span>
+                  </div>
+                  <span className="text-2xl md:text-3xl font-black tabular-nums" style={{ color: idx === 0 ? '#003399' : '#94a3b8' }}>{entry.score}</span>
+                </div>
+              ))}
+            </div>
+
+            <button 
+              onClick={() => { setGameState('START'); setPlayerName(''); }}
+              className="w-full py-6 md:py-10 rounded-2xl md:rounded-3xl text-2xl md:text-3xl font-black bg-slate-100 text-slate-500 hover:bg-slate-200 transition-all flex items-center justify-center gap-4 border-b-8 border-slate-200"
+            >
+              <Home size={36} /> NEUSTART
+            </button>
+          </div>
+        )}
+
+      </main>
+
+      <footer className="p-6 md:p-8 bg-white border-t border-slate-50 flex flex-col sm:flex-row justify-between items-center gap-4 text-center sm:text-left">
+        <span className="font-bold text-slate-300 uppercase tracking-[0.2em] text-[10px] md:text-xs">hwk-koblenz.de</span>
+        <div className="flex gap-8 md:gap-12 opacity-20">
+            <span className="font-black text-xl md:text-2xl italic tracking-tighter uppercase">#machen #handwerk</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
